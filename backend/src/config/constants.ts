@@ -18,6 +18,7 @@ export const ALLOWED_UPLOAD_MIME_TYPES = {
 } as const;
 
 export const UPLOAD_URL_EXPIRATION = 60 * 15; // 15 minutes
+export const DOWNLOAD_URL_EXPIRATION = 60 * 60; // 1 hour
 
 export const validateEnv = () => {
   const required = [
