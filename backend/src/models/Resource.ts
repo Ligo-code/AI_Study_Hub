@@ -5,12 +5,33 @@ interface ISummary {
   createdAt: Date;
 }
 
+export type ResourceType = "plain_text" | "pdf";
+
+export type ResourceStatus =
+  | "draft"
+  | "upload_pending"
+  | "uploaded"
+  | "processing"
+  | "ready"
+  | "failed";
+
 export interface IResource extends Document {
   ownerId: mongoose.Types.ObjectId;
   title: string;
   tags: string[];
-  textContent: string;
-  type: "plain_text";
+  type: ResourceType;
+
+  // Plain text resource fields
+  textContent?: string;
+
+  // File-based resource fields
+  storageKey?: string;
+  bucket?: string;
+  mimeType?: string;
+  originalFileName?: string;
+  size?: number;
+  status: ResourceStatus;
+
   summary?: ISummary;
   createdAt: Date;
   updatedAt: Date;
@@ -56,15 +77,54 @@ const ResourceSchema = new Schema<IResource>(
         message: "Maximum 10 tags allowed",
       },
     },
-    textContent: {
-      type: String,
-      required: [true, "Text content is required"],
-      maxlength: [100000, "Text content cannot exceed 100,000 characters"], // ~100KB
-    },
     type: {
       type: String,
-      enum: ["plain_text"],
+      enum: ["plain_text", "pdf"],
       default: "plain_text",
+      required: true,
+    },
+    textContent: {
+      type: String,
+      required: false,
+      maxlength: [100000, "Text content cannot exceed 100,000 characters"], // ~100KB
+    },
+    storageKey: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    bucket: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    mimeType: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    originalFileName: {
+      type: String,
+      required: false,
+      trim: true,
+      maxlength: [255, "Original file name cannot exceed 255 characters"],
+    },
+    size: {
+      type: Number,
+      required: false,
+      min: [0, "File size cannot be negative"],
+    },
+    status: {
+      type: String,
+      enum: [
+        "draft",
+        "upload_pending",
+        "uploaded",
+        "processing",
+        "ready",
+        "failed",
+      ],
+      default: "draft",
       required: true,
     },
     summary: {
@@ -73,11 +133,13 @@ const ResourceSchema = new Schema<IResource>(
     },
   },
   {
-    timestamps: true, 
+    timestamps: true,
   }
 );
 
 // Indexes
 ResourceSchema.index({ ownerId: 1, createdAt: -1 });
+ResourceSchema.index({ ownerId: 1, status: 1 });
+ResourceSchema.index({ ownerId: 1, type: 1 });
 
 export const Resource = mongoose.model<IResource>("Resource", ResourceSchema);

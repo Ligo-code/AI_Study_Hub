@@ -288,6 +288,13 @@ export const generateSummary = async (
     }
 
     try {
+      if (!resource.textContent || !resource.textContent.trim()) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "This resource does not contain text content for summary generation",
+        });
+      }
       const summaryContent = await generateSummaryFromText(
         resource.textContent
       );
