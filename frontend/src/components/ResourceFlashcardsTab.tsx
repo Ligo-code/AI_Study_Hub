@@ -15,14 +15,20 @@ type Props = {
   resourceTitle?: string;
 };
 
-export default function ResourceFlashcardsTab({ resourceId, resourceTitle }: Props) {
-  const { sets, countsBySetId, isLoading, error, reload } = useFlashcardSets(resourceId);
+export default function ResourceFlashcardsTab({
+  resourceId,
+  resourceTitle,
+}: Props) {
+  const { sets, countsBySetId, isLoading, error, reload } =
+    useFlashcardSets(resourceId);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
-  const [selectedSet, setSelectedSet] = useState<FlashcardSetDetailDto | null>(null);
+  const [selectedSet, setSelectedSet] = useState<FlashcardSetDetailDto | null>(
+    null
+  );
   const [isLoadingSet, setIsLoadingSet] = useState(false);
   const [setError, setSetError] = useState<string | null>(null);
 
@@ -58,7 +64,7 @@ export default function ResourceFlashcardsTab({ resourceId, resourceTitle }: Pro
   async function handleGenerate() {
     try {
       setIsGenerating(true);
-      await generateFlashcards({ resourceId, title: resourceTitle });
+      await generateFlashcards({ resourceId, title: resourceTitle, count: 10 });
       await reload();
     } finally {
       setIsGenerating(false);
@@ -79,7 +85,8 @@ export default function ResourceFlashcardsTab({ resourceId, resourceTitle }: Pro
     }
   }
 
-  if (isLoading) return <div className="py-10 text-sm text-gray-500">Loading…</div>;
+  if (isLoading)
+    return <div className="py-10 text-sm text-gray-500">Loading…</div>;
 
   if (error) {
     return (
@@ -99,7 +106,8 @@ export default function ResourceFlashcardsTab({ resourceId, resourceTitle }: Pro
   }
 
   if (selectedSetId) {
-    if (isLoadingSet) return <div className="py-10 text-sm text-gray-500">Loading…</div>;
+    if (isLoadingSet)
+      return <div className="py-10 text-sm text-gray-500">Loading…</div>;
     if (setError) {
       return (
         <div className="py-10">
@@ -131,7 +139,12 @@ export default function ResourceFlashcardsTab({ resourceId, resourceTitle }: Pro
   }
 
   if (sets.length === 0) {
-    return <FlashcardsEmptyState onGenerate={handleGenerate} isGenerating={isGenerating} />;
+    return (
+      <FlashcardsEmptyState
+        onGenerate={handleGenerate}
+        isGenerating={isGenerating}
+      />
+    );
   }
 
   return (

@@ -184,10 +184,10 @@ const parseCards = (jsonText: string): GeneratedFlashcard[] => {
   const cardsArray = Array.isArray(parsed)
     ? parsed
     : Array.isArray(parsed?.cards)
-      ? parsed.cards
-      : Array.isArray(parsed?.flashcards)
-        ? parsed.flashcards
-        : null;
+    ? parsed.cards
+    : Array.isArray(parsed?.flashcards)
+    ? parsed.flashcards
+    : null;
 
   if (!cardsArray || !Array.isArray(cardsArray)) {
     throw new Error('LLM JSON missing a "cards" array');
@@ -197,7 +197,9 @@ const parseCards = (jsonText: string): GeneratedFlashcard[] => {
     .map((c: any) => {
       const front = String(c?.front ?? c?.question ?? "").trim();
       const back = String(c?.back ?? c?.answer ?? "").trim();
-      const explanation = String(c?.explanation ?? c?.rationale ?? c?.why ?? "").trim();
+      const explanation = String(
+        c?.explanation ?? c?.rationale ?? c?.why ?? ""
+      ).trim();
 
       if (!front || !back) return null;
 
@@ -221,10 +223,13 @@ export const generateFlashcardsFromText = async (params: {
   if (!text) return stubCards(count);
 
   const parsedCards = parseQaPairs(text);
-  if (parsedCards.length > 0) {
-    if (parsedCards.length >= count) return parsedCards.slice(0, count);
-    return parsedCards;
+
+  // If parser found enough cards - use them
+  if (parsedCards.length >= count) {
+    return parsedCards.slice(0, count);
   }
+
+  // If parser found some cards but not enough - ignore them and let AI generate all cards
 
   if (mode === "stub") return stubCards(count);
 
@@ -261,7 +266,10 @@ Text:
 
     return [...cleaned, ...stubCards(count - cleaned.length)];
   } catch (err) {
-    console.error("[flashcardsGenerator] LLM parse/call failed -> stub fallback:", err);
+    console.error(
+      "[flashcardsGenerator] LLM parse/call failed -> stub fallback:",
+      err
+    );
     return stubCards(count);
   }
 };
