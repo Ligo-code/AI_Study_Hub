@@ -10,6 +10,9 @@ import {
   normalizeText,
 } from "../utils/validation";
 import { generateSummaryFromText } from "../services/summaryGenerator";
+import { storageService } from "../services/storage.service";
+import crypto from "crypto";
+import { ALLOWED_UPLOAD_MIME_TYPES } from "../config/constants";
 
 const requireUserObjectId = (
   req: Request,
@@ -95,6 +98,160 @@ export const createResource = async (
       resource: savedResource,
     });
   } catch (error: any) {
+    next(error);
+  }
+};
+
+export const initPdfUpload = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const ownerId = requireUserObjectId(req, res);
+    if (!ownerId) return;
+
+    const { title, originalFileName, mimeType, size, tags: rawTags } = req.body;
+
+    // Validate title
+    const titleValidation = validateTitle(title);
+    if (!titleValidation.isValid) {
+      return res.status(400).json({
+        success: false,
+        error: titleValidation.error,
+      });
+    }
+
+    // Validate mime type
+    if (!ALLOWED_UPLOAD_MIME_TYPES.PDF.includes(mimeType)) {
+      return res.status(400).json({
+        success: false,
+        error: "Only PDF files are supported",
+      });
+    }
+
+    // Validate file size
+    if (size > LIMITS.PDF_MAX_FILE_SIZE) {
+      return res.status(400).json({
+        success: false,
+        error: `File size exceeds ${LIMITS.PDF_MAX_FILE_SIZE} bytes`,
+      });
+    }
+
+    const parsedTags = parseTags(rawTags);
+
+    if (parsedTags.length > LIMITS.MAX_TAGS) {
+      return res.status(400).json({
+        success: false,
+        error: `Maximum ${LIMITS.MAX_TAGS} tags allowed`,
+      });
+    }
+
+    // Generate storage key
+    const randomId = crypto.randomBytes(16).toString("hex");
+
+    const storageKey = `resources/${ownerId}/${randomId}.pdf`;
+
+    // Create resource in DB (upload pending)
+    const resource = new Resource({
+      ownerId,
+      title: normalizeText(title),
+      tags: validateTags(parsedTags),
+      type: "pdf",
+      file: {
+        originalFileName,
+        mimeType,
+        size,
+        storageKey,
+      },
+      status: "upload_pending",
+    });
+
+    const savedResource = await resource.save();
+
+    // Generate presigned URL
+    const uploadUrl = await storageService.generatePresignedUploadUrl(
+      storageKey,
+      mimeType
+    );
+
+    return res.status(200).json({
+      success: true,
+      resourceId: savedResource._id,
+      uploadUrl,
+      storageKey,
+      expiresIn: 900,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const completeUpload = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const ownerId = requireUserObjectId(req, res);
+    if (!ownerId) return;
+
+    const { id } = req.params;
+
+    const resource = await Resource.findOne({ _id: id, ownerId });
+
+    if (!resource) {
+      return res.status(404).json({
+        success: false,
+        error: "Resource not found",
+      });
+    }
+
+    if (resource.type !== "pdf") {
+      return res.status(400).json({
+        success: false,
+        error: "Complete upload is only supported for PDF resources",
+      });
+    }
+
+    if (!resource.storageKey) {
+      return res.status(400).json({
+        success: false,
+        error: "Resource does not have a storage key",
+      });
+    }
+
+    if (resource.status !== "upload_pending") {
+      return res.status(400).json({
+        success: false,
+        error: `Resource upload cannot be completed from status "${resource.status}"`,
+      });
+    }
+
+    const fileExists = await storageService.objectExists(resource.storageKey);
+
+    if (!fileExists) {
+      return res.status(400).json({
+        success: false,
+        error: "Uploaded file was not found in storage",
+      });
+    }
+
+    resource.status = "uploaded";
+    await resource.save();
+
+    console.log("[resource] Upload completed", {
+      resourceId: resource._id.toString(),
+      ownerId: ownerId.toString(),
+      storageKey: resource.storageKey,
+    });
+
+    return res.status(200).json({
+      success: true,
+      resource,
+    });
+  } catch (error: any) {
+    if (handleCastError(error, res)) return;
     next(error);
   }
 };
