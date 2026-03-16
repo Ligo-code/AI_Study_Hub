@@ -1,7 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import { Resource } from "../models/Resource";
-import { LIMITS } from "../config/constants";
+import {
+  LIMITS,
+  ALLOWED_UPLOAD_MIME_TYPES,
+  UPLOAD_URL_EXPIRATION,
+} from "../config/constants";
 import {
   validateTitle,
   validateTextContent,
@@ -12,7 +16,6 @@ import {
 import { generateSummaryFromText } from "../services/summaryGenerator";
 import { storageService } from "../services/storage.service";
 import crypto from "crypto";
-import { ALLOWED_UPLOAD_MIME_TYPES } from "../config/constants";
 
 const requireUserObjectId = (
   req: Request,
@@ -131,6 +134,12 @@ export const initPdfUpload = async (
     }
 
     // Validate file size
+    if (typeof size !== "number" || size <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "File size must be a positive number",
+      });
+    }
     if (size > LIMITS.PDF_MAX_FILE_SIZE) {
       return res.status(400).json({
         success: false,
@@ -149,7 +158,6 @@ export const initPdfUpload = async (
 
     // Generate storage key
     const randomId = crypto.randomBytes(16).toString("hex");
-
     const storageKey = `resources/${ownerId}/${randomId}.pdf`;
 
     // Create resource in DB (upload pending)
@@ -158,30 +166,51 @@ export const initPdfUpload = async (
       title: normalizeText(title),
       tags: validateTags(parsedTags),
       type: "pdf",
-      file: {
-        originalFileName,
-        mimeType,
-        size,
-        storageKey,
-      },
+      storageKey,
+      bucket: storageService.getBucketName(),
+      originalFileName,
+      mimeType,
+      size,
       status: "upload_pending",
     });
 
     const savedResource = await resource.save();
 
-    // Generate presigned URL
-    const uploadUrl = await storageService.generatePresignedUploadUrl(
-      storageKey,
-      mimeType
-    );
+    // Generate presigned URL with error handling
+    try {
+      const uploadUrl = await storageService.generatePresignedUploadUrl(
+        storageKey,
+        mimeType
+      );
 
-    return res.status(200).json({
-      success: true,
-      resourceId: savedResource._id,
-      uploadUrl,
-      storageKey,
-      expiresIn: 900,
-    });
+      console.log("[resource] Initiated PDF upload", {
+        resourceId: savedResource._id.toString(),
+        ownerId: ownerId.toString(),
+        storageKey,
+        fileSize: size,
+      });
+
+      return res.status(200).json({
+        success: true,
+        resourceId: savedResource._id,
+        uploadUrl,
+        storageKey,
+        expiresIn: UPLOAD_URL_EXPIRATION,
+      });
+    } catch (uploadError) {
+      // Rollback: delete the created resource
+      await Resource.findByIdAndDelete(savedResource._id);
+
+      console.error("[resource] Failed to generate upload URL", {
+        resourceId: savedResource._id.toString(),
+        error: uploadError,
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: "Failed to initialize upload. Please try again.",
+      });
+    }
   } catch (error) {
     next(error);
   }
@@ -405,17 +434,34 @@ export const deleteResource = async (
 
     const { id } = req.params;
 
-    const deletedResource = await Resource.findOneAndDelete({
-      _id: id,
-      ownerId,
-    });
+    const resource = await Resource.findOne({ _id: id, ownerId });
 
-    if (!deletedResource) {
+    if (!resource) {
       return res.status(404).json({
         success: false,
         error: "Resource not found",
       });
     }
+
+    // If resource has a file in storage, delete it
+    if (resource.storageKey) {
+      try {
+        await storageService.deleteObject(resource.storageKey);
+
+        console.log("[resource] File deleted from storage", {
+          resourceId: resource._id.toString(),
+          storageKey: resource.storageKey,
+        });
+      } catch (storageError) {
+        console.error("[resource] Failed to delete file from storage", {
+          resourceId: resource._id.toString(),
+          storageKey: resource.storageKey,
+          error: storageError,
+        });
+      }
+    }
+
+    await resource.deleteOne();
 
     return res.status(204).send();
   } catch (error: any) {

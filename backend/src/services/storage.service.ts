@@ -11,6 +11,25 @@ import {
   DOWNLOAD_URL_EXPIRATION,
 } from "../config/constants";
 
+//Type guard to check if error is an AWS S3 NotFound error
+
+function isNotFoundError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const err = error as {
+    name?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+
+  return (
+    err.name === "NotFound" ||
+    err.name === "NoSuchKey" ||
+    err.$metadata?.httpStatusCode === 404
+  );
+}
+
 class StorageService {
   private s3Client: S3Client;
   private bucket: string;
@@ -115,12 +134,7 @@ class StorageService {
       console.log("[StorageService] Object exists", { key });
       return true;
     } catch (error: unknown) {
-      if (
-        typeof error === "object" &&
-        error !== null &&
-        "name" in error &&
-        (error as { name?: string }).name === "NotFound"// implement helper type guard instead of this check
-      ) {
+      if (isNotFoundError(error)) {
         console.log("[StorageService] Object not found", { key });
         return false;
       }
